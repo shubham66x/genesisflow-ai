@@ -61,7 +61,6 @@ export function addMessage(convoId: string, role: "user" | "assistant", content:
     timestamp: Date.now(),
   });
 
-  // Auto-title from first user message
   if (convo.messages.filter((m) => m.role === "user").length === 1 && role === "user") {
     convo.title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
   }
@@ -69,6 +68,20 @@ export function addMessage(convoId: string, role: "user" | "assistant", content:
   convo.updatedAt = Date.now();
   saveConversations(all);
   return convo;
+}
+
+export function updateLastAssistantMessage(convoId: string, content: string) {
+  const all = getConversations();
+  const convo = all.find((c) => c.id === convoId);
+  if (!convo) return;
+  for (let i = convo.messages.length - 1; i >= 0; i--) {
+    if (convo.messages[i].role === "assistant") {
+      convo.messages[i].content = content;
+      break;
+    }
+  }
+  convo.updatedAt = Date.now();
+  saveConversations(all);
 }
 
 export function deleteConversation(convoId: string) {
@@ -101,19 +114,94 @@ export const MODEL_INFO: Record<AIModel, { name: string; description: string; co
   step: { name: "Step", description: "Step AI's analytical model", color: "hsl(280, 70%, 55%)" },
 };
 
-// Simulated AI response (will be replaced with real API calls via Lovable Cloud)
-export async function getAIResponse(messages: Message[], model: AIModel): Promise<string> {
-  // Simulate processing delay
-  await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1000));
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
-  const lastMsg = messages[messages.length - 1]?.content || "";
-  const modelName = MODEL_INFO[model].name;
-  const msgCount = messages.length;
+export async function streamAIResponse(
+  messages: Message[],
+  model: AIModel,
+  onDelta: (text: string) => void,
+  onDone: () => void,
+  onError: (error: string) => void,
+) {
+  try {
+    const resp = await fetch(CHAT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+      },
+      body: JSON.stringify({
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        model,
+      }),
+    });
 
-  // Context-aware simulated response
-  if (msgCount <= 2) {
-    return `Thank you for your question. I am ${modelName}, and I will help you work through this step by step.\n\nBased on what you have shared about "${lastMsg.slice(0, 60)}", here is my initial analysis:\n\n1. First, let us break down the core elements of your question.\n2. Then we will explore the most effective approach.\n3. Finally, I will provide actionable recommendations.\n\nLet me start with the first point. The key consideration here is understanding the underlying factors at play. Would you like me to go deeper into any specific aspect, or shall I continue with the full breakdown?`;
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({ error: "Request failed" }));
+      onError(errData.error || `Error ${resp.status}`);
+      return;
+    }
+
+    if (!resp.body) {
+      onError("No response stream");
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let textBuffer = "";
+    let streamDone = false;
+
+    while (!streamDone) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      textBuffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex: number;
+      while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
+        let line = textBuffer.slice(0, newlineIndex);
+        textBuffer = textBuffer.slice(newlineIndex + 1);
+
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        if (line.startsWith(":") || line.trim() === "") continue;
+        if (!line.startsWith("data: ")) continue;
+
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr === "[DONE]") {
+          streamDone = true;
+          break;
+        }
+
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+          if (content) onDelta(content);
+        } catch {
+          textBuffer = line + "\n" + textBuffer;
+          break;
+        }
+      }
+    }
+
+    // Flush remaining buffer
+    if (textBuffer.trim()) {
+      for (let raw of textBuffer.split("\n")) {
+        if (!raw) continue;
+        if (raw.endsWith("\r")) raw = raw.slice(0, -1);
+        if (raw.startsWith(":") || raw.trim() === "") continue;
+        if (!raw.startsWith("data: ")) continue;
+        const jsonStr = raw.slice(6).trim();
+        if (jsonStr === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+          if (content) onDelta(content);
+        } catch { /* ignore */ }
+      }
+    }
+
+    onDone();
+  } catch (e) {
+    onError(e instanceof Error ? e.message : "Connection failed");
   }
-
-  return `Building on our previous discussion, here is the next layer of analysis.\n\nConsidering everything we have covered so far across our ${Math.floor(msgCount / 2)} exchanges, the pattern that emerges is quite clear.\n\nHere are the key insights for this stage:\n\n1. The approach we discussed earlier connects directly to this next step.\n2. There are additional factors worth considering that strengthen our solution.\n3. The practical application would look something like this in your specific situation.\n\nI am keeping full context of our conversation, so feel free to ask follow-up questions, request clarification on any point, or steer the discussion in a new direction. What would you like to explore next?`;
 }
