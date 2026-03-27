@@ -1,17 +1,16 @@
-export type AIModel = "claude" | "gpt" | "gemini" | "step";
-
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  model?: AIModel;
+  category?: string;
+  speed?: string;
   timestamp: number;
 }
 
 export interface Conversation {
   id: string;
   title: string;
-  model: AIModel;
+  category: string;
   messages: Message[];
   createdAt: number;
   updatedAt: number;
@@ -33,11 +32,11 @@ export function saveConversations(convos: Conversation[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(convos));
 }
 
-export function createConversation(model: AIModel): Conversation {
+export function createConversation(category: string): Conversation {
   const convo: Conversation = {
     id: crypto.randomUUID(),
     title: "New Conversation",
-    model,
+    category,
     messages: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -48,7 +47,7 @@ export function createConversation(model: AIModel): Conversation {
   return convo;
 }
 
-export function addMessage(convoId: string, role: "user" | "assistant", content: string, model?: AIModel): Conversation | null {
+export function addMessage(convoId: string, role: "user" | "assistant", content: string, category?: string, speed?: string): Conversation | null {
   const all = getConversations();
   const convo = all.find((c) => c.id === convoId);
   if (!convo) return null;
@@ -57,7 +56,8 @@ export function addMessage(convoId: string, role: "user" | "assistant", content:
     id: crypto.randomUUID(),
     role,
     content,
-    model,
+    category,
+    speed,
     timestamp: Date.now(),
   });
 
@@ -107,18 +107,13 @@ export function incrementUsage() {
   return user;
 }
 
-export const MODEL_INFO: Record<AIModel, { name: string; description: string; color: string }> = {
-  claude: { name: "Claude", description: "Anthropic's reasoning model", color: "hsl(25, 90%, 55%)" },
-  gpt: { name: "GPT", description: "OpenAI's versatile model", color: "hsl(160, 70%, 45%)" },
-  gemini: { name: "Gemini", description: "Google's multimodal model", color: "hsl(210, 90%, 55%)" },
-  step: { name: "Step", description: "Step AI's analytical model", color: "hsl(280, 70%, 55%)" },
-};
-
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
 export async function streamAIResponse(
   messages: Message[],
-  model: AIModel,
+  category: string,
+  speed: string,
+  model: string,
   onDelta: (text: string) => void,
   onDone: () => void,
   onError: (error: string) => void,
@@ -132,6 +127,8 @@ export async function streamAIResponse(
       },
       body: JSON.stringify({
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        category,
+        speed,
         model,
       }),
     });
@@ -183,7 +180,6 @@ export async function streamAIResponse(
       }
     }
 
-    // Flush remaining buffer
     if (textBuffer.trim()) {
       for (let raw of textBuffer.split("\n")) {
         if (!raw) continue;
