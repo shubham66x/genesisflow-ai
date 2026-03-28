@@ -110,7 +110,7 @@ const Index = () => {
           </AnimSection>
 
           <AnimSection variants={{ hidden: { opacity: 0, filter: "blur(12px)" }, visible: { opacity: 1, filter: "blur(0)", transition: { duration: 0.8 } } }}>
-            <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 leading-tight tracking-tight">
+            <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 leading-tight tracking-tight headline-glow">
               Solve Any Life Problem{" "}
               <span className="text-gradient-animated">with AI</span>
             </h1>
