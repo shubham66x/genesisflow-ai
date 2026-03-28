@@ -280,7 +280,7 @@ const Index = () => {
           </AnimSection>
 
           <motion.div
-            className="grid grid-cols-2 md:grid-cols-3 gap-3"
+            className="grid grid-cols-2 md:grid-cols-4 gap-3"
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true }}
