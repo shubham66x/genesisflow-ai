@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import {
   type Conversation,
   type Message,
@@ -16,7 +17,6 @@ import {
   addMessage,
   updateLastAssistantMessage,
   deleteConversation,
-  getUser,
   incrementUsage,
   streamAIResponse,
 } from "@/lib/chat-store";
@@ -113,6 +113,7 @@ const CategoryGrid = ({ onSelect }: { onSelect: (cat: Category) => void }) => (
 const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, loading: authLoading, signOut } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -121,12 +122,13 @@ const Dashboard = () => {
   const [showSidebar, setShowSidebar] = useState(false);
   const [detectedCat, setDetectedCat] = useState<Category | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const user = getUser();
+  const [usage, setUsage] = useState(0);
+  const maxUsage = 100;
 
   useEffect(() => {
-    if (!user) { navigate("/"); return; }
+    if (!authLoading && !user) { navigate("/"); return; }
     setConversations(getConversations());
-  }, []);
+  }, [authLoading, user]);
 
   const activeConvo = conversations.find((c) => c.id === activeId) || null;
 
@@ -153,8 +155,7 @@ const Dashboard = () => {
   const handleSend = useCallback(async () => {
     if (!input.trim() || isLoading) return;
 
-    const currentUser = getUser();
-    if (currentUser && currentUser.usage >= currentUser.maxUsage) {
+    if (usage >= maxUsage) {
       toast({ title: "Limit reached", description: "You've used all free requests.", variant: "destructive" });
       return;
     }
@@ -196,6 +197,7 @@ const Dashboard = () => {
       () => {
         updateLastAssistantMessage(convoId!, fullContent);
         incrementUsage();
+        setUsage(prev => prev + 1);
         setConversations(getConversations());
         setStreamingContent("");
         setIsLoading(false);
@@ -216,8 +218,8 @@ const Dashboard = () => {
     setConversations(getConversations());
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("jetflows_user");
+  const handleLogout = async () => {
+    await signOut();
     navigate("/");
   };
 
@@ -235,8 +237,7 @@ const Dashboard = () => {
     return msg;
   }) || [];
 
-  const currentUsage = user?.usage || 0;
-  const maxUsage = user?.maxUsage || 100;
+  const currentUsage = usage;
 
   return (
     <div className="h-screen flex bg-background text-foreground overflow-hidden">
