@@ -155,8 +155,7 @@ const Dashboard = () => {
   const handleSend = useCallback(async () => {
     if (!input.trim() || isLoading) return;
 
-    const currentUser = getUser();
-    if (currentUser && currentUser.usage >= currentUser.maxUsage) {
+    if (usage >= maxUsage) {
       toast({ title: "Limit reached", description: "You've used all free requests.", variant: "destructive" });
       return;
     }
