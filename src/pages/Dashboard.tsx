@@ -218,8 +218,8 @@ const Dashboard = () => {
     setConversations(getConversations());
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("jetflows_user");
+  const handleLogout = async () => {
+    await signOut();
     navigate("/");
   };
 
