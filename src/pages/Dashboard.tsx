@@ -23,9 +23,12 @@ import {
 import {
   CATEGORIES,
   detectCategory,
-  getSmartModel,
   type Category,
 } from "@/lib/categories";
+import { resolveGatewayModel } from "@/lib/models";
+import ModelSelector from "@/components/ModelSelector";
+import AttachmentMenu, { type AttachmentAction } from "@/components/AttachmentMenu";
+import VoiceButton from "@/components/VoiceButton";
 
 const ChatMessage = ({ msg }: { msg: Message }) => {
   const cat = msg.category ? CATEGORIES.find(c => c.id === msg.category) : null;
@@ -121,6 +124,7 @@ const Dashboard = () => {
   const [streamingContent, setStreamingContent] = useState("");
   const [showSidebar, setShowSidebar] = useState(false);
   const [detectedCat, setDetectedCat] = useState<Category | null>(null);
+  const [selectedModel, setSelectedModel] = useState("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [usage, setUsage] = useState(0);
   const maxUsage = 100;
@@ -136,7 +140,6 @@ const Dashboard = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [activeConvo?.messages.length, streamingContent]);
 
-  // Live category detection as user types
   useEffect(() => {
     if (input.trim().length > 3) {
       setDetectedCat(detectCategory(input));
@@ -162,7 +165,8 @@ const Dashboard = () => {
 
     const userMsg = input.trim();
     const category = detectCategory(userMsg);
-    const { model, speed } = getSmartModel(category, userMsg.length);
+    const speed = category.speedMode;
+    const model = resolveGatewayModel(selectedModel, speed);
 
     let convoId = activeId;
     if (!convoId) {
@@ -179,7 +183,6 @@ const Dashboard = () => {
 
     const updatedConvo = getConversations().find((c) => c.id === convoId);
 
-    // Add placeholder assistant message
     addMessage(convoId, "assistant", "", category.id, speed);
     setConversations(getConversations());
 
@@ -210,7 +213,30 @@ const Dashboard = () => {
         toast({ title: "AI Error", description: error, variant: "destructive" });
       },
     );
-  }, [input, isLoading, activeId, toast]);
+  }, [input, isLoading, activeId, toast, selectedModel, usage]);
+
+  const handleAttachmentAction = useCallback((action: AttachmentAction) => {
+    const prefixMap: Record<AttachmentAction, string> = {
+      thinking: "[Thinking Mode] ",
+      deep_research: "[Deep Research] ",
+      create_image: "[Create Image] ",
+      study: "[Study & Learn] ",
+      add_photos: "",
+      camera: "",
+      upload_files: "",
+    };
+
+    if (action === "add_photos" || action === "camera" || action === "upload_files") {
+      toast({ title: "Coming Soon", description: "File uploads will be available soon." });
+      return;
+    }
+
+    setInput(prev => prefixMap[action] + prev);
+  }, [toast]);
+
+  const handleVoiceTranscript = useCallback((text: string) => {
+    setInput(prev => prev + text);
+  }, []);
 
   const handleDelete = (id: string) => {
     deleteConversation(id);
@@ -236,8 +262,6 @@ const Dashboard = () => {
     }
     return msg;
   }) || [];
-
-  const currentUsage = usage;
 
   return (
     <div className="h-screen flex bg-background text-foreground overflow-hidden">
@@ -312,10 +336,10 @@ const Dashboard = () => {
 
             <div className="p-4 border-t border-border space-y-3">
               <div className="text-xs text-muted-foreground">
-                Usage: {currentUsage} / {maxUsage}
+                Usage: {usage} / {maxUsage}
               </div>
               <div className="w-full bg-secondary rounded-full h-1.5">
-                <div className="gold-gradient h-1.5 rounded-full transition-all" style={{ width: `${Math.min((currentUsage / maxUsage) * 100, 100)}%` }} />
+                <div className="gold-gradient h-1.5 rounded-full transition-all" style={{ width: `${Math.min((usage / maxUsage) * 100, 100)}%` }} />
               </div>
               <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={handleLogout}>
                 <LogOut className="h-4 w-4 mr-2" /> Sign Out
@@ -327,22 +351,24 @@ const Dashboard = () => {
 
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Header with model selector */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-3">
             <button onClick={() => setShowSidebar(!showSidebar)} className="text-muted-foreground hover:text-foreground">
               <Menu className="h-5 w-5" />
             </button>
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-primary" />
-              <span className="font-semibold text-sm text-gradient-animated">JetFlows AI</span>
-            </div>
+            <ModelSelector selectedId={selectedModel} onChange={setSelectedModel} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Zap className="h-4 w-4 text-primary" />
+            <span className="font-semibold text-sm text-gradient-animated">JetFlows AI</span>
           </div>
           {activeConvo && (() => {
             const cat = CATEGORIES.find(c => c.id === activeConvo.category);
             return cat ? (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <cat.icon className="h-3.5 w-3.5" style={{ color: cat.color }} />
-                <span>{cat.label}</span>
+                <span className="hidden sm:inline">{cat.label}</span>
               </div>
             ) : null;
           })()}
@@ -372,10 +398,9 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* Input */}
+        {/* Input with attachment menu + voice */}
         <div className="p-4 border-t border-border">
           <div className="max-w-3xl mx-auto">
-            {/* Live category detection indicator */}
             <AnimatePresence>
               {detectedCat && !isLoading && (
                 <motion.div
@@ -390,7 +415,8 @@ const Dashboard = () => {
                 </motion.div>
               )}
             </AnimatePresence>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-end">
+              <AttachmentMenu onAction={handleAttachmentAction} disabled={isLoading} />
               <Textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -399,10 +425,11 @@ const Dashboard = () => {
                 className="flex-1 bg-secondary border-border resize-none min-h-[48px] max-h-[120px] rounded-xl"
                 rows={1}
               />
+              <VoiceButton onTranscript={handleVoiceTranscript} disabled={isLoading} />
               <Button
                 onClick={handleSend}
                 disabled={!input.trim() || isLoading}
-                className="gold-gradient text-primary-foreground self-end rounded-xl"
+                className="gold-gradient text-primary-foreground rounded-xl"
                 size="icon"
               >
                 <Send className="h-4 w-4" />

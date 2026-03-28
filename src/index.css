@@ -160,6 +160,11 @@
     animation: gradientShift 4s ease infinite;
   }
 
+  .headline-glow {
+    text-shadow: 0 0 20px hsla(43, 100%, 50%, 0.4), 0 0 40px hsla(43, 100%, 50%, 0.2), 0 0 80px hsla(43, 100%, 50%, 0.1);
+    animation: headlineGlow 2.5s ease-in-out infinite;
+  }
+
   .category-card {
     @apply glass rounded-xl p-5 cursor-pointer transition-all duration-300;
     @apply hover-lift hover-glow;
@@ -215,6 +220,11 @@
   0%, 100% { transform: rotate(0deg); }
   25% { transform: rotate(-3deg); }
   75% { transform: rotate(3deg); }
+}
+
+@keyframes headlineGlow {
+  0%, 100% { text-shadow: 0 0 20px hsla(43, 100%, 50%, 0.4), 0 0 40px hsla(43, 100%, 50%, 0.2), 0 0 80px hsla(43, 100%, 50%, 0.1); }
+  50% { text-shadow: 0 0 30px hsla(43, 100%, 50%, 0.6), 0 0 60px hsla(43, 100%, 50%, 0.35), 0 0 100px hsla(43, 100%, 50%, 0.15); }
 }
 
 @keyframes textReveal {
