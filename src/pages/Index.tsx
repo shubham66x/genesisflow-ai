@@ -287,12 +287,17 @@ const Index = () => {
             variants={stagger}
           >
             {[
-              { name: "GPT-5", tag: "Deep Reasoning", color: "hsl(160, 70%, 45%)" },
-              { name: "GPT-5 Mini", tag: "Balanced", color: "hsl(160, 70%, 55%)" },
-              { name: "GPT-5 Nano", tag: "Ultra Fast", color: "hsl(160, 70%, 65%)" },
-              { name: "Gemini Pro", tag: "Deep Analysis", color: "hsl(210, 90%, 55%)" },
+              { name: "GPT-4.1", tag: "Balanced", color: "hsl(160, 70%, 45%)" },
+              { name: "GPT-4o-mini", tag: "Ultra Fast", color: "hsl(160, 70%, 55%)" },
+              { name: "Claude Opus 4.5", tag: "Deep Reasoning", color: "hsl(270, 70%, 55%)" },
+              { name: "Claude Sonnet 4.5", tag: "Balanced", color: "hsl(270, 60%, 65%)" },
+              { name: "Gemini 1.5 Pro", tag: "Long Context", color: "hsl(210, 90%, 55%)" },
               { name: "Gemini Flash", tag: "Speed King", color: "hsl(210, 80%, 65%)" },
-              { name: "Gemini Lite", tag: "Lightning Fast", color: "hsl(210, 70%, 75%)" },
+              { name: "Grok-3", tag: "Fast", color: "hsl(0, 0%, 70%)" },
+              { name: "Grok-4.1", tag: "Advanced", color: "hsl(0, 0%, 55%)" },
+              { name: "DeepSeek V3", tag: "Balanced", color: "hsl(45, 80%, 55%)" },
+              { name: "DeepSeek R1", tag: "Reasoning", color: "hsl(45, 70%, 45%)" },
+              { name: "LLaMA 4", tag: "Creative/Open", color: "hsl(200, 60%, 50%)" },
             ].map((m, i) => (
               <motion.div key={i} variants={scalePop} className="glass rounded-xl p-4 hover-tilt gold-border">
                 <div className="flex items-center gap-2 mb-1">
