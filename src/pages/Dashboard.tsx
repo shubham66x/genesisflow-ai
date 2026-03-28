@@ -236,8 +236,7 @@ const Dashboard = () => {
     return msg;
   }) || [];
 
-  const currentUsage = user?.usage || 0;
-  const maxUsage = user?.maxUsage || 100;
+  const currentUsage = usage;
 
   return (
     <div className="h-screen flex bg-background text-foreground overflow-hidden">
