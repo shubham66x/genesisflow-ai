@@ -113,6 +113,7 @@ const CategoryGrid = ({ onSelect }: { onSelect: (cat: Category) => void }) => (
 const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, loading: authLoading, signOut } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -121,12 +122,13 @@ const Dashboard = () => {
   const [showSidebar, setShowSidebar] = useState(false);
   const [detectedCat, setDetectedCat] = useState<Category | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const user = getUser();
+  const [usage, setUsage] = useState(0);
+  const maxUsage = 100;
 
   useEffect(() => {
-    if (!user) { navigate("/"); return; }
+    if (!authLoading && !user) { navigate("/"); return; }
     setConversations(getConversations());
-  }, []);
+  }, [authLoading, user]);
 
   const activeConvo = conversations.find((c) => c.id === activeId) || null;
 
