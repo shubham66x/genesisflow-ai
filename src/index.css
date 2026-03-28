@@ -160,6 +160,11 @@
     animation: gradientShift 4s ease infinite;
   }
 
+  .headline-glow {
+    text-shadow: 0 0 20px hsla(43, 100%, 50%, 0.4), 0 0 40px hsla(43, 100%, 50%, 0.2), 0 0 80px hsla(43, 100%, 50%, 0.1);
+    animation: headlineGlow 2.5s ease-in-out infinite;
+  }
+
   .category-card {
     @apply glass rounded-xl p-5 cursor-pointer transition-all duration-300;
     @apply hover-lift hover-glow;
