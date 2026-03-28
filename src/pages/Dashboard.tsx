@@ -197,6 +197,7 @@ const Dashboard = () => {
       () => {
         updateLastAssistantMessage(convoId!, fullContent);
         incrementUsage();
+        setUsage(prev => prev + 1);
         setConversations(getConversations());
         setStreamingContent("");
         setIsLoading(false);
