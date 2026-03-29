@@ -1,14 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import ReactMarkdown from "react-markdown";
-import {
-  Zap, Send, Plus, Trash2, LogOut, Menu, X, Sparkles,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Zap, Menu } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   type Conversation,
   type Message,
@@ -20,153 +15,117 @@ import {
   incrementUsage,
   streamAIResponse,
 } from "@/lib/chat-store";
-import {
-  CATEGORIES,
-  detectCategory,
-  type Category,
-} from "@/lib/categories";
+import { CATEGORIES, detectCategory } from "@/lib/categories";
 import { resolveGatewayModel } from "@/lib/models";
-import ModelSelector from "@/components/ModelSelector";
-import AttachmentMenu, { type AttachmentAction } from "@/components/AttachmentMenu";
-import VoiceButton from "@/components/VoiceButton";
+import { getPersonaById, PERSONAS } from "@/lib/personas";
+import ChatSidebar from "@/components/chat/ChatSidebar";
+import ModelPillBar, { MODEL_PILLS } from "@/components/chat/ModelPillBar";
+import InputToolbar from "@/components/chat/InputToolbar";
+import ChatMessage from "@/components/chat/ChatMessage";
+import RightPanel from "@/components/chat/RightPanel";
 
-const ChatMessage = ({ msg }: { msg: Message }) => {
-  const cat = msg.category ? CATEGORIES.find(c => c.id === msg.category) : null;
+const RESEARCH_PREPEND = `You are a research assistant. Structure your response as a full research report with these exact sections using markdown:
+## Executive Summary
+## Key Findings
+## Supporting Evidence
+## Conflicting Perspectives
+## Conclusion
+Be thorough. Use headers, bullets, and bold key terms.
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-    >
-      <div
-        className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-          msg.role === "user"
-            ? "gold-gradient text-primary-foreground"
-            : "glass gold-border"
-        }`}
-      >
-        {msg.role === "assistant" && cat && (
-          <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
-            <cat.icon className="h-3 w-3" style={{ color: cat.color }} />
-            <span>{cat.label}</span>
-            {msg.speed && (
-              <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-secondary capitalize">{msg.speed}</span>
-            )}
-          </div>
-        )}
-        {msg.role === "assistant" ? (
-          <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none [&_p]:mb-2 [&_ul]:mb-2 [&_ol]:mb-2 [&_li]:mb-0.5 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_code]:bg-secondary [&_code]:px-1 [&_code]:rounded [&_pre]:bg-secondary [&_pre]:rounded-lg [&_pre]:p-3">
-            <ReactMarkdown>{msg.content || "..."}</ReactMarkdown>
-          </div>
-        ) : (
-          <div className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</div>
-        )}
-      </div>
-    </motion.div>
-  );
-};
+`;
 
-const CategoryGrid = ({ onSelect }: { onSelect: (cat: Category) => void }) => (
-  <div className="flex items-center justify-center h-full">
-    <div className="text-center max-w-lg px-4">
-      <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring" }}>
-        <Zap className="h-12 w-12 text-primary mx-auto mb-4" />
-      </motion.div>
-      <motion.h2
-        className="text-2xl font-bold mb-2"
-        initial={{ opacity: 0, filter: "blur(8px)" }}
-        animate={{ opacity: 1, filter: "blur(0)" }}
-        transition={{ delay: 0.2 }}
-      >
-        AI Life Operating System
-      </motion.h2>
-      <motion.p
-        className="text-muted-foreground mb-6 text-sm"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.3 }}
-      >
-        Pick a category or just type anything. Smart routing handles the rest.
-      </motion.p>
-      <motion.div
-        className="grid grid-cols-2 sm:grid-cols-5 gap-2"
-        initial="hidden"
-        animate="visible"
-        variants={{ visible: { transition: { staggerChildren: 0.04 } } }}
-      >
-        {CATEGORIES.map((cat) => (
-          <motion.button
-            key={cat.id}
-            variants={{ hidden: { opacity: 0, scale: 0.8 }, visible: { opacity: 1, scale: 1 } }}
-            onClick={() => onSelect(cat)}
-            className="glass gold-border rounded-xl p-3 text-center hover-lift hover-glow group transition-all"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <cat.icon className="h-5 w-5 mx-auto mb-1 transition-transform group-hover:scale-110" style={{ color: cat.color }} />
-            <div className="text-xs font-medium">{cat.label}</div>
-          </motion.button>
-        ))}
-      </motion.div>
-    </div>
-  </div>
-);
+const RESEARCH_STEPS = ["🔍 Analyzing...", "📚 Researching...", "✍️ Writing report..."];
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user, loading: authLoading, signOut } = useAuth();
+  const isMobile = useIsMobile();
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [deletedConvos, setDeletedConvos] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
-  const [showSidebar, setShowSidebar] = useState(false);
-  const [detectedCat, setDetectedCat] = useState<Category | null>(null);
-  const [selectedModel, setSelectedModel] = useState("auto");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [selectedModel, setSelectedModel] = useState("claude");
+  const [activePersona, setActivePersona] = useState("general");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [usage, setUsage] = useState(0);
   const maxUsage = 100;
+
+  // Right panel
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [artifactCode, setArtifactCode] = useState<string | undefined>();
+  const [researchContent, setResearchContent] = useState<string | undefined>();
+
+  // Dark mode
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem("jetflows_dark");
+    return saved !== null ? saved === "true" : true;
+  });
+
+  // Research progress
+  const [researchStep, setResearchStep] = useState(-1);
+
+  // Think mode animation
+  const [showThinking, setShowThinking] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [showNewMsgBtn, setShowNewMsgBtn] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) { navigate("/"); return; }
     setConversations(getConversations());
   }, [authLoading, user]);
 
-  const activeConvo = conversations.find((c) => c.id === activeId) || null;
-
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+    if (darkMode) {
+      document.documentElement.classList.remove("light");
+    } else {
+      document.documentElement.classList.add("light");
+    }
+    localStorage.setItem("jetflows_dark", String(darkMode));
+  }, [darkMode]);
+
+  const activeConvo = conversations.find(c => c.id === activeId) || null;
+
+  // Auto scroll
+  useEffect(() => {
+    if (!showNewMsgBtn) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [activeConvo?.messages.length, streamingContent]);
 
-  useEffect(() => {
-    if (input.trim().length > 3) {
-      setDetectedCat(detectCategory(input));
-    } else {
-      setDetectedCat(null);
-    }
-  }, [input]);
+  // Detect if scrolled up
+  const handleScroll = useCallback(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    setShowNewMsgBtn(!atBottom && isLoading);
+  }, [isLoading]);
 
-  const startFromCategory = useCallback((cat: Category) => {
-    const convo = createConversation(cat.id);
-    setConversations(getConversations());
-    setActiveId(convo.id);
-    setInput(cat.examples[0] + " ");
-  }, []);
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    setShowNewMsgBtn(false);
+  };
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || isLoading) return;
+  const modelLabel = MODEL_PILLS.find(m => m.id === selectedModel)?.label || "AI";
 
+  const handleSend = useCallback(async (
+    text: string,
+    opts: { responseMode: string; thinkMode: string; tone: string; webEnabled: boolean; researchMode: boolean; file?: File }
+  ) => {
+    if (isLoading) return;
     if (usage >= maxUsage) {
       toast({ title: "Limit reached", description: "You've used all free requests.", variant: "destructive" });
       return;
     }
 
-    const userMsg = input.trim();
-    const category = detectCategory(userMsg);
+    const category = detectCategory(text);
     const speed = category.speedMode;
-    const model = resolveGatewayModel(selectedModel, speed);
+    const model = resolveGatewayModel(selectedModel === "claude" ? "claude-sonnet-4.5" : selectedModel === "gpt4o" ? "gpt-4.1" : selectedModel === "gemini" ? "gemini-flash" : selectedModel === "deepseek" ? "deepseek-r1" : selectedModel === "grok" ? "grok-3" : selectedModel === "llama" ? "llama-4" : "auto", speed);
 
     let convoId = activeId;
     if (!convoId) {
@@ -175,14 +134,37 @@ const Dashboard = () => {
       setActiveId(convo.id);
     }
 
-    setInput("");
-    addMessage(convoId, "user", userMsg, category.id, speed);
+    // Build message content with persona prefix
+    const persona = getPersonaById(activePersona);
+    let finalPrompt = text;
+    if (opts.researchMode) {
+      finalPrompt = RESEARCH_PREPEND + text;
+    }
+
+    addMessage(convoId, "user", text, category.id, speed);
     setConversations(getConversations());
     setIsLoading(true);
     setStreamingContent("");
 
-    const updatedConvo = getConversations().find((c) => c.id === convoId);
+    // Think mode animation
+    if (opts.thinkMode === "think") {
+      setShowThinking(true);
+      await new Promise(r => setTimeout(r, 1500));
+      setShowThinking(false);
+    }
 
+    // Research progress
+    if (opts.researchMode) {
+      let step = 0;
+      setResearchStep(0);
+      const interval = setInterval(() => {
+        step++;
+        if (step < RESEARCH_STEPS.length) setResearchStep(step);
+        else clearInterval(interval);
+      }, 1500);
+    }
+
+    const updatedConvo = getConversations().find(c => c.id === convoId);
     addMessage(convoId, "assistant", "", category.id, speed);
     setConversations(getConversations());
 
@@ -196,6 +178,7 @@ const Dashboard = () => {
       (delta) => {
         fullContent += delta;
         setStreamingContent(fullContent);
+        setResearchStep(-1);
       },
       () => {
         updateLastAssistantMessage(convoId!, fullContent);
@@ -204,57 +187,48 @@ const Dashboard = () => {
         setConversations(getConversations());
         setStreamingContent("");
         setIsLoading(false);
+        setResearchStep(-1);
+
+        // Auto-open right panel for research
+        if (opts.researchMode && fullContent) {
+          setResearchContent(fullContent);
+          setRightPanelOpen(true);
+        }
       },
       (error) => {
         updateLastAssistantMessage(convoId!, `Error: ${error}`);
         setConversations(getConversations());
         setStreamingContent("");
         setIsLoading(false);
+        setResearchStep(-1);
         toast({ title: "AI Error", description: error, variant: "destructive" });
       },
     );
-  }, [input, isLoading, activeId, toast, selectedModel, usage]);
-
-  const handleAttachmentAction = useCallback((action: AttachmentAction) => {
-    const prefixMap: Record<AttachmentAction, string> = {
-      thinking: "[Thinking Mode] ",
-      deep_research: "[Deep Research] ",
-      create_image: "[Create Image] ",
-      study: "[Study & Learn] ",
-      add_photos: "",
-      camera: "",
-      upload_files: "",
-    };
-
-    if (action === "add_photos" || action === "camera" || action === "upload_files") {
-      toast({ title: "Coming Soon", description: "File uploads will be available soon." });
-      return;
-    }
-
-    setInput(prev => prefixMap[action] + prev);
-  }, [toast]);
-
-  const handleVoiceTranscript = useCallback((text: string) => {
-    setInput(prev => prev + text);
-  }, []);
+  }, [isLoading, activeId, toast, selectedModel, usage, activePersona]);
 
   const handleDelete = (id: string) => {
+    const convo = conversations.find(c => c.id === id);
+    if (convo) {
+      setDeletedConvos(prev => [convo, ...prev].slice(0, 10));
+    }
     deleteConversation(id);
     if (activeId === id) setActiveId(null);
     setConversations(getConversations());
   };
 
-  const handleLogout = async () => {
-    await signOut();
-    navigate("/");
+  const handleRestore = (id: string) => {
+    const convo = deletedConvos.find(c => c.id === id);
+    if (!convo) return;
+    // Re-add to localStorage
+    const all = getConversations();
+    all.unshift(convo);
+    localStorage.setItem("jetflows_conversations", JSON.stringify(all));
+    setDeletedConvos(prev => prev.filter(c => c.id !== id));
+    setConversations(getConversations());
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  const handleLogout = async () => { await signOut(); navigate("/"); };
+  const handleNewChat = () => { setActiveId(null); setShowMobileSidebar(false); };
 
   const displayMessages = activeConvo?.messages.map((msg, i) => {
     if (isLoading && streamingContent && i === activeConvo.messages.length - 1 && msg.role === "assistant") {
@@ -263,181 +237,207 @@ const Dashboard = () => {
     return msg;
   }) || [];
 
+  // Skeleton loader
+  const SkeletonRows = () => (
+    <div className="space-y-3 p-4">
+      {[...Array(5)].map((_, i) => (
+        <div key={i} className="flex items-center gap-3 animate-pulse">
+          <div className="w-8 h-8 rounded-lg bg-secondary" />
+          <div className="flex-1">
+            <div className="h-3 bg-secondary rounded w-3/4 mb-1.5" />
+            <div className="h-2 bg-secondary/60 rounded w-1/2" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
-    <div className="h-screen flex bg-background text-foreground overflow-hidden">
+    <div className="h-screen flex bg-background text-foreground overflow-hidden" style={{ fontFamily: "var(--font-ui)" }}>
       {/* Mobile sidebar overlay */}
-      <AnimatePresence>
-        {showSidebar && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 z-40 md:hidden"
-            onClick={() => setShowSidebar(false)}
-          />
-        )}
-      </AnimatePresence>
+      {isMobile && showMobileSidebar && (
+        <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowMobileSidebar(false)} />
+      )}
 
       {/* Sidebar */}
-      <AnimatePresence>
-        {showSidebar && (
-          <motion.div
-            initial={{ x: -288 }}
-            animate={{ x: 0 }}
-            exit={{ x: -288 }}
-            transition={{ type: "spring", damping: 25 }}
-            className="fixed md:relative z-50 w-72 flex-shrink-0 border-r border-border flex flex-col bg-card h-full"
-          >
-            <div className="p-4 border-b border-border">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Zap className="h-5 w-5 text-primary" />
-                  <span className="font-bold text-gradient-animated">JetFlows</span>
-                </div>
-                <button onClick={() => setShowSidebar(false)} className="text-muted-foreground md:hidden">
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <Button
-                onClick={() => { setActiveId(null); setShowSidebar(false); }}
-                className="w-full gold-gradient text-primary-foreground font-semibold"
-                size="sm"
-              >
-                <Plus className="h-4 w-4 mr-2" /> New Chat
-              </Button>
-            </div>
+      {isMobile ? (
+        showMobileSidebar && (
+          <div className="fixed left-0 top-0 bottom-0 z-50">
+            <ChatSidebar
+              conversations={conversations}
+              activeId={activeId}
+              onSelect={(id) => { setActiveId(id); setShowMobileSidebar(false); }}
+              onNew={() => { handleNewChat(); setShowMobileSidebar(false); }}
+              onDelete={handleDelete}
+              onLogout={handleLogout}
+              collapsed={false}
+              onToggleCollapse={() => setShowMobileSidebar(false)}
+              usage={usage}
+              maxUsage={maxUsage}
+              activePersona={activePersona}
+              onPersonaChange={setActivePersona}
+              darkMode={darkMode}
+              onToggleDark={() => setDarkMode(!darkMode)}
+              deletedConvos={deletedConvos}
+              onRestore={handleRestore}
+            />
+          </div>
+        )
+      ) : (
+        <ChatSidebar
+          conversations={conversations}
+          activeId={activeId}
+          onSelect={setActiveId}
+          onNew={handleNewChat}
+          onDelete={handleDelete}
+          onLogout={handleLogout}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          usage={usage}
+          maxUsage={maxUsage}
+          activePersona={activePersona}
+          onPersonaChange={setActivePersona}
+          darkMode={darkMode}
+          onToggleDark={() => setDarkMode(!darkMode)}
+          deletedConvos={deletedConvos}
+          onRestore={handleRestore}
+        />
+      )}
 
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {conversations.map((convo) => {
-                const cat = CATEGORIES.find(c => c.id === convo.category);
-                return (
-                  <div
-                    key={convo.id}
-                    className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
-                      activeId === convo.id ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50"
-                    }`}
-                    onClick={() => { setActiveId(convo.id); setShowSidebar(false); }}
-                  >
-                    {cat && <cat.icon className="h-3.5 w-3.5 flex-shrink-0" style={{ color: cat.color }} />}
-                    <span className="flex-1 truncate">{convo.title}</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(convo.id); }}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-              {conversations.length === 0 && (
-                <p className="text-center text-muted-foreground text-xs py-8">No conversations yet</p>
-              )}
-            </div>
-
-            <div className="p-4 border-t border-border space-y-3">
-              <div className="text-xs text-muted-foreground">
-                Usage: {usage} / {maxUsage}
-              </div>
-              <div className="w-full bg-secondary rounded-full h-1.5">
-                <div className="gold-gradient h-1.5 rounded-full transition-all" style={{ width: `${Math.min((usage / maxUsage) * 100, 100)}%` }} />
-              </div>
-              <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={handleLogout}>
-                <LogOut className="h-4 w-4 mr-2" /> Sign Out
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Main */}
+      {/* Center panel */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header with model selector */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setShowSidebar(!showSidebar)} className="text-muted-foreground hover:text-foreground">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-background/80 backdrop-blur-sm">
+          {isMobile && (
+            <button onClick={() => setShowMobileSidebar(true)} className="text-muted-foreground hover:text-foreground">
               <Menu className="h-5 w-5" />
             </button>
-            <ModelSelector selectedId={selectedModel} onChange={setSelectedModel} />
+          )}
+          <div className="flex-1 overflow-hidden">
+            <ModelPillBar selected={selectedModel} onChange={setSelectedModel} />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {activePersona !== "general" && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full border border-primary/30 text-primary bg-primary/5">
+                Mode: {getPersonaById(activePersona).label}
+              </span>
+            )}
             <Zap className="h-4 w-4 text-primary" />
-            <span className="font-semibold text-sm text-gradient-animated">JetFlows AI</span>
           </div>
-          {activeConvo && (() => {
-            const cat = CATEGORIES.find(c => c.id === activeConvo.category);
-            return cat ? (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <cat.icon className="h-3.5 w-3.5" style={{ color: cat.color }} />
-                <span className="hidden sm:inline">{cat.label}</span>
-              </div>
-            ) : null;
-          })()}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-6">
+        {/* Chat area */}
+        <div
+          ref={chatContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-4 py-6"
+        >
           {!activeConvo || activeConvo.messages.length === 0 ? (
-            <CategoryGrid onSelect={startFromCategory} />
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center max-w-lg px-4">
+                <Zap className="h-12 w-12 text-primary mx-auto mb-4" />
+                <h2 className="text-2xl font-bold mb-2" style={{ fontFamily: "var(--font-ui)" }}>
+                  AI Life Operating System
+                </h2>
+                <p className="text-muted-foreground mb-6 text-sm" style={{ fontFamily: "var(--font-chat)" }}>
+                  Pick a category or just type anything. Smart routing handles the rest.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {CATEGORIES.map(cat => (
+                    <button
+                      key={cat.id}
+                      onClick={() => {
+                        const convo = createConversation(cat.id);
+                        setConversations(getConversations());
+                        setActiveId(convo.id);
+                      }}
+                      className="glass gold-border rounded-xl p-3 text-center hover:scale-105 transition-transform group"
+                    >
+                      <cat.icon className="h-5 w-5 mx-auto mb-1 group-hover:scale-110 transition-transform" style={{ color: cat.color }} />
+                      <div className="text-xs font-medium">{cat.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           ) : (
-            <div className="max-w-3xl mx-auto space-y-4">
-              {displayMessages.map((msg) => (
-                <ChatMessage key={msg.id} msg={msg} />
+            <div className="max-w-3xl mx-auto space-y-5">
+              {displayMessages.map((msg, i) => (
+                <ChatMessage
+                  key={msg.id}
+                  msg={msg}
+                  modelId={selectedModel}
+                  isStreaming={isLoading && i === displayMessages.length - 1 && msg.role === "assistant"}
+                  onCopy={() => toast({ title: "✅ Copied to clipboard" })}
+                  onOpenArtifact={(code) => { setArtifactCode(code); setRightPanelOpen(true); }}
+                />
               ))}
-              {isLoading && !streamingContent && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-                  <div className="glass gold-border rounded-2xl px-4 py-3">
-                    <div className="flex gap-1.5">
-                      <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-                      <span className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: "0.15s" }} />
-                      <span className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: "0.3s" }} />
-                    </div>
+
+              {/* Think mode animation */}
+              {showThinking && (
+                <div className="flex justify-start animate-msg-in">
+                  <div className="text-sm text-muted-foreground flex items-center gap-2">
+                    <span className="text-lg">🧠</span>
+                    <span className="animate-pulse">Thinking...</span>
                   </div>
-                </motion.div>
+                </div>
               )}
+
+              {/* Typing indicator */}
+              {isLoading && !streamingContent && !showThinking && researchStep < 0 && (
+                <div className="flex justify-start animate-msg-in">
+                  <div className="flex gap-1.5 px-4 py-3">
+                    <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Research progress */}
+              {researchStep >= 0 && (
+                <div className="flex justify-start animate-msg-in">
+                  <div className="space-y-1.5">
+                    {RESEARCH_STEPS.slice(0, researchStep + 1).map((step, i) => (
+                      <div key={i} className={`text-sm ${i === researchStep ? "text-foreground animate-pulse" : "text-muted-foreground"}`}>
+                        {step}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
           )}
         </div>
 
-        {/* Input with attachment menu + voice */}
-        <div className="p-4 border-t border-border">
-          <div className="max-w-3xl mx-auto">
-            <AnimatePresence>
-              {detectedCat && !isLoading && (
-                <motion.div
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 5 }}
-                  className="flex items-center gap-2 mb-2 text-xs text-muted-foreground"
-                >
-                  <detectedCat.icon className="h-3 w-3" style={{ color: detectedCat.color }} />
-                  <span>Detected: <span className="text-foreground font-medium">{detectedCat.label}</span></span>
-                  <span className="px-1.5 py-0.5 rounded bg-secondary text-[10px] capitalize">{detectedCat.speedMode}</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <div className="flex gap-2 items-end">
-              <AttachmentMenu onAction={handleAttachmentAction} disabled={isLoading} />
-              <Textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask anything — productivity, coding, finance, creativity..."
-                className="flex-1 bg-secondary border-border resize-none min-h-[48px] max-h-[120px] rounded-xl"
-                rows={1}
-              />
-              <VoiceButton onTranscript={handleVoiceTranscript} disabled={isLoading} />
-              <Button
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading}
-                className="gold-gradient text-primary-foreground rounded-xl"
-                size="icon"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
+        {/* New message button */}
+        {showNewMsgBtn && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-3 py-1.5 rounded-full text-xs shadow-lg z-10 hover:bg-primary/90"
+          >
+            ↓ New message
+          </button>
+        )}
+
+        {/* Input */}
+        <InputToolbar
+          modelLabel={modelLabel}
+          onSend={handleSend}
+          isLoading={isLoading}
+        />
       </div>
+
+      {/* Right panel */}
+      <RightPanel
+        open={rightPanelOpen}
+        onClose={() => setRightPanelOpen(false)}
+        artifactCode={artifactCode}
+        researchContent={researchContent}
+        isMobile={isMobile}
+      />
     </div>
   );
 };
